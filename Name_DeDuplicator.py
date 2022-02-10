@@ -462,7 +462,7 @@ if __name__ == "__main__":
     
 
     print("Removing Ratios...")
-    #extracting only names, removing ratios
+    #extracting only names, removing ratios. Ratios weren't that useful.
     for i in temp:
         ls_temp = []
         for j in i:
@@ -521,4 +521,6 @@ if __name__ == "__main__":
     key = []
     for i in tqdm(names, desc = "Extracting keywords from coauthor groups..."):
         key.append(extract_keywordname(i))
+        
+    pd.DataFrame(key, columns=['author']).to_csv('data/author_keywords')
     
