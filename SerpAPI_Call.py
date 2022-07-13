@@ -12,7 +12,8 @@ from difflib import SequenceMatcher
 import os 
 from os.path import exists
 import re
-os.chdir('D:\git repo\SerpAPI-Call-Clean\data')
+from tqdm import tqdm
+os.chdir('D:\git repo\Firewall-Project\data')
 from selenium import webdriver
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from selenium.common.exceptions import TimeoutException
@@ -39,7 +40,47 @@ ALTNAME_FORMAT1 = re.compile("^[^0-9]+, [^0-9]+")
 
 ALTNAME_FORMAT2 = re.compile("^[^0-9]+. [^0-9]+")
 
+
+def wait_for_el_on_page(selector, text_before=None, timeout=0.5):
+    try:
+        if not text_before:
+            ui.WebDriverWait(browser, timeout).until(
+                    EC.visibility_of_element_located((By.XPATH, selector)))
+        else:
+            ui.WebDriverWait(browser, timeout).until(
+                    text_changed((By.XPATH, selector), text_before))
+        return True
+
+    except TimeoutException:
+        missing_paper_els = browser.find_elements_by_xpath("//div[@class='gs_alrt'][contains(text(),'This citation doesn')]")
+        if missing_paper_els:
+            logging.error(f'This citation doesn\'t exist.')
+            return False
+
+        # traceback.print_stack()
+
+        captcha_el = browser.find_elements_by_css_selector('#gs_captcha_f')
+        recaptcha_el = browser.find_elements_by_css_selector('#captcha-form')
+        if captcha_el or recaptcha_el:
+            input('Solve the captcha then press any key to continue')
+            return wait_for_el_on_page(selector, text_before, timeout)
+        else:
+            # citation page with error "The system can't perform the operation now. Try again later."
+            # But error may not be in English so simply check for non-emptiness
+            alert_el = browser.find_elements_by_css_selector('#gs_md_cita-l div.gs_alrt')
+            if (alert_el and alert_el[0].text.strip()) or GOOGLE_BOT_DETECTED_TEXT in browser.find_element_by_tag_name('body').text:
+                input('Google likely detected bot. paused. Try refreshing page & solving the captcha then press any key to continue')
+                return wait_for_el_on_page(selector, text_before, timeout)
+            else:
+                raise RuntimeError(f'element not found {selector}')
+
+    except StaleElementReferenceException:
+        return wait_for_el_on_page(selector, text_before, timeout)
+
+    return False
+
 def api_call(author):
+    author_clean = author.replace('\\', '').replace('/', '')
     params = {
       "q": f"{author} Economics Personal Website",
       "hl": "en",
@@ -85,25 +126,20 @@ def no_research(link):
 
 def download_search_results(authors):   
     counter = 0
-    for author in authors:
-        if not exists(f"Google Searches\Coauthors\{author}.json"):
+    c = 0
+    done = set([x.replace('.json', '').strip() for x in os.listdir('D:\git repo\Firewall-Project\data\Google Searches\Coauthors')])
+    for author in tqdm(authors):
+        if author not in done:
+            c+=1
             results = api_call(author)
             if no_result(results):
                 counter += 1
-            
-            if authors.index(author)%100 == 0 or authors.index(author) == len(authors)-1:
-                print("# of author searches completed:" + str(authors.index(author) + 1))
-                prop_results = (len(authors) - counter)/len(authors)
-                print(f"Prop of authors with some google search result {prop_results}")  
-                print("------------------------------------------------------------")
             try:
                 with open(f"Google Searches/Coauthors/{author}.json", "w") as outfile:
                     json.dump(results, outfile)
             except:
                 continue #Some issue with special characters (like \\) can lead to a filenotfounderror
-                
 
-            
 def openbrowser():
     global browser
 
@@ -181,7 +217,7 @@ def personalsite_match(author, link, link_text):
     PERSONALSITE2_MATCH = re.compile(f'^http[s]?:\/\/(www.)?[a-z]*.*{author_firstname[0]}[a-z]*{author_lastname}\..*')
     PERSONALSITE3_MATCH = re.compile(f'^http[s]?:\/\/(www.)?{author_lastname}.*{author_firstname}\..*')
     PERSONALSITE4_MATCH = re.compile(f'http[s]?:\/\/(www.)?{author_lastname}.*')
-    PERSONALSITE5_MATCH = re.compile(f'^http[s]?:\/\/(www.])?{firstini}[a-z]+.*{lastini}[a-z]*\..*')
+    PERSONALSITE5_MATCH = re.compile(f'^http[s]?:\/\/(www.)?{firstini}[a-z]+.*{lastini}[a-z]*\..*')
     if no_research(link):
         return
     if ".edu" in link:
@@ -316,7 +352,7 @@ def website_search(author = "Kripa Freitas"):
     wp = []
     aca = []
     # try:
-    with open(f"Google Searches\Authors\{author}.json", "r") as jsonfile:
+    with open(f"Google Searches\Coauthors\{author}.json", "r") as jsonfile:
         search = json.load(jsonfile)
     # except FileNotFoundError:
     #     print("Redownloading: " + author)
@@ -403,14 +439,13 @@ def txt_to_ls(filename):
 
 # test_ls = [str(x[0].encode("utf-8")).replace("b'", "").replace("'", "").replace("\\", "") for x in test_coauth]
 
-authors = txt_to_ls("scholars_top50.txt")
-# download_search_results(key)
+# authors = list(pd.read_csv(r"C:\Users\F0064WK\Downloads\profiles_final_with_count_and_scores_rev.csv", encoding ='latin-1').iloc[:,0])
+# download_search_results(author_ls)
 
 website_ls = []
 cntr = 0
 cntr_none = 0
-for i in authors:
-    print(authors.index(i))
+for i in tqdm(author_ls, total = len(author_ls)):
     try:
         website_ls.append(website_search(i))
     except:
